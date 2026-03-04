@@ -7,13 +7,41 @@ import { getFirestore, collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc
 
 const BULAN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
 
-// Konfigurasi Firebase disesuaikan kembali agar berjalan di semua environment
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+// BACA KONFIGURASI FIREBASE DENGAN AMAN UNTUK VITE LOKAL & CANVAS
+const getFirebaseConfig = () => {
+  try {
+    // 1. Coba baca dari Vite (.env) di localhost/Vercel
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_FIREBASE_API_KEY) {
+      return {
+        apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+        authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+        projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+        storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+        messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+        appId: import.meta.env.VITE_FIREBASE_APP_ID
+      };
+    }
+    // 2. Coba baca dari environment Canvas AI
+    if (typeof __firebase_config !== 'undefined') {
+      return JSON.parse(__firebase_config);
+    }
+  } catch (e) {
+    console.warn("Gagal membaca konfigurasi Firebase.");
+  }
+  // 3. Fallback dummy agar aplikasi TIDAK LAYAR PUTIH / crash jika .env kosong
+  return { apiKey: "dummy_key", appId: "dummy_id", projectId: "dummy_project" };
+};
 
+const firebaseConfig = getFirebaseConfig();
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+// Setup ID Aplikasi
+let appId = 'dashboard-karyawan-app';
+try {
+  if (typeof __app_id !== 'undefined') appId = __app_id;
+} catch (e) {}
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -23,11 +51,12 @@ export default function App() {
 
   const [employees, setEmployees] = useState([]);
   
-  // State untuk Modals & Forms
+  // State untuk Modals
   const [showAddModal, setShowAddModal] = useState(false);
-  const [editingId, setEditingId] = useState(null); // Menyimpan ID data yang sedang diedit
-  const [itemToDelete, setItemToDelete] = useState(null); // Menyimpan data yang akan dihapus
+  const [editingId, setEditingId] = useState(null);
+  const [itemToDelete, setItemToDelete] = useState(null);
   
+  // State Form
   const [newEmpName, setNewEmpName] = useState('');
   const [newEmpNid, setNewEmpNid] = useState('');
   const [newEmpData, setNewEmpData] = useState(Array.from({ length: 12 }, () => ({ hours: '', minutes: '' })));
@@ -35,13 +64,11 @@ export default function App() {
   // Handler untuk otomatis huruf kapital
   const handleNameChange = (e) => {
     const input = e.target.value;
-    // Mengubah huruf pertama dari setiap kata menjadi kapital
     const capitalized = input.replace(/\b\w/g, char => char.toUpperCase());
     setNewEmpName(capitalized);
   };
 
   const handleNidChange = (e) => {
-    // Mengubah seluruh input NID menjadi huruf kapital
     setNewEmpNid(e.target.value.toUpperCase());
   };
 
@@ -81,7 +108,14 @@ export default function App() {
   // --- Handlers ---
   const handleLogin = (e) => {
     e.preventDefault();
-    if (passwordInput === 'ririn') {
+    let adminPassword = 'ririn';
+    try {
+      if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_ADMIN_PASSWORD) {
+        adminPassword = import.meta.env.VITE_ADMIN_PASSWORD;
+      }
+    } catch (error) {}
+
+    if (passwordInput === adminPassword) {
       setIsAuthenticated(true);
       setLoginError(false);
       setPasswordInput('');
@@ -100,7 +134,6 @@ export default function App() {
     setShowAddModal(false);
   };
 
-  // Simpan Data (Tambah Baru ATAU Update Data Lama)
   const handleSaveEmployee = async (e) => {
     e.preventDefault();
     if (!newEmpName.trim() || !newEmpNid.trim() || !user) return;
@@ -116,7 +149,6 @@ export default function App() {
 
     try {
       if (editingId) {
-        // Mode EDIT: Perbarui dokumen yang ada
         const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'employees', editingId);
         await updateDoc(docRef, {
           nid: newEmpNid,
@@ -126,7 +158,6 @@ export default function App() {
           avatar: avatarUrl
         });
       } else {
-        // Mode TAMBAH BARU: Buat dokumen baru
         const newId = `EMP-${Date.now()}`;
         const newEmployee = {
           id: newId,
@@ -151,13 +182,11 @@ export default function App() {
     setNewEmpData(newData);
   };
 
-  // Memicu Modal Edit
   const handleEdit = (emp) => {
     setEditingId(emp.id);
     setNewEmpName(emp.name);
     setNewEmpNid(emp.nid || emp.id);
 
-    // Konversi kembali dari format desimal jam ke Jam & Menit untuk Form
     const formatedData = emp.monthlyData.map(val => {
       const totalMinutes = Math.round(val * 60);
       const h = Math.floor(totalMinutes / 60);
@@ -172,12 +201,11 @@ export default function App() {
     setShowAddModal(true);
   };
 
-  // Mengeksekusi Penghapusan Data
   const executeDelete = async () => {
     if (!itemToDelete) return;
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'employees', itemToDelete.id));
-      setItemToDelete(null); // Tutup modal konfirmasi
+      setItemToDelete(null); 
     } catch (error) {
       console.error("Gagal menghapus data:", error);
     }
@@ -248,7 +276,7 @@ export default function App() {
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight">Dashboard Kedisiplinan</h1>
             <p className="text-sm md:text-base text-slate-500 mt-1">Laporan Akumulasi Keterlambatan Karyawan</p>
           </div>
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button onClick={() => { resetForm(); setShowAddModal(true); }} className="inline-flex flex-1 sm:flex-none justify-center items-center space-x-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors">
               <Plus size={18} /><span>Tambah Data</span>
             </button>
